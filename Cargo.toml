@@ -1,0 +1,33 @@
+[package]
+name = "memalloc"
+version = "0.1.0"
+authors = ["Yuuki Takano <ytakanoster@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+synctools = { git = "https://github.com/ytakano/synctools.git", branch = "main", default-features=false }
+
+[features]
+default = ["buddy_32m"]
+
+buddy_32m = []
+buddy_64m = []
+buddy_128m = []
+buddy_256m = []
+buddy_512m = []
+buddy_1g = []
+buddy_2g = []
+buddy_4g = []
+buddy_8g = []
+buddy_16g = []
+buddy_32g = []
+buddy_64g = []
+buddy_128g = []
+buddy_256g = []
+buddy_512g = []
+buddy_1t = []
+buddy_2t = []
+buddy_4t = []
+buddy_8t = []
