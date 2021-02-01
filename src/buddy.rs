@@ -26,7 +26,8 @@
 // 01   01   10   00   10   00   00
 // x(0) x(1) L(2) u(3) L(4) u(5) u(6)
 
-const MAX_DIMENSIONS_RAW: &'static str = env!("MAX_DIMENSIONS");
+use alloc::alloc::handle_alloc_error;
+use core::alloc::Layout;
 
 use synctools::mcs::MCSLock;
 
@@ -96,14 +97,35 @@ const TAG_USED_LEAF: u64 = 2;
 
 static mut BUDDY_ALLOC: Option<MCSLock<BuddyAlloc>> = None;
 
-pub(crate) fn buddy_alloc() {
+pub(crate) fn buddy_alloc(layout: Layout) -> *mut u8 {
+    unsafe {
+        match BUDDY_ALLOC
+            .as_ref()
+            .expect("buddy allocator is not yet initialized")
+            .lock()
+            .mem_alloc(layout.size())
+        {
+            Some(addr) => addr,
+            None => handle_alloc_error(layout),
+        }
+    }
+}
 
+pub(crate) fn buddy_dealloc(ptr: *mut u8, _layout: Layout) {
+    unsafe {
+        BUDDY_ALLOC
+            .as_ref()
+            .expect("buddy allocator is not yet initialized")
+            .lock()
+            .mem_free(ptr);
+    }
 }
 
 /// heap_end = heap_start + 2^MAX_DEPTH * min_size
 /// heap_size = heap_end - heap_size
-pub(crate) fn init_buddy(min_size: usize, heap_start: usize) {
-    let buddy = BuddyAlloc::new(min_size, heap_start);
+pub(crate) fn init(min_size: usize, heap_start: usize) {
+    let buddy = MCSLock::new(BuddyAlloc::new(min_size, heap_start));
+    unsafe { BUDDY_ALLOC = Some(buddy) };
 }
 
 pub(crate) struct BuddyAlloc {

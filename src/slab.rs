@@ -175,7 +175,10 @@ macro_rules! DeallocMemory {
 pub(crate) unsafe fn slab_alloc(layout: Layout) -> *mut u8 {
     let size = layout.size();
     let n = (size as u64 + 8 - 1).leading_zeros();
-    let mut slab = SLAB_ALLOC.as_ref().expect("slab allocator is not yet initialized").lock();
+    let mut slab = SLAB_ALLOC
+        .as_ref()
+        .expect("slab allocator is not yet initialized")
+        .lock();
 
     match n {
         61 => {
@@ -239,7 +242,10 @@ pub(crate) unsafe fn slab_alloc(layout: Layout) -> *mut u8 {
 pub(crate) unsafe fn slab_dealloc(ptr: *mut u8, _layout: Layout) {
     let addr_slab = *((ptr as usize - 8) as *const u64);
     let size = *((addr_slab + 65532) as *const u32);
-    let mut slab = SLAB_ALLOC.as_ref().expect("slab allocator is not yet initialized").lock();
+    let mut slab = SLAB_ALLOC
+        .as_ref()
+        .expect("slab allocator is not yet initialized")
+        .lock();
     /*
             driver::uart::puts("dealloc:\n");
             driver::uart::puts("  ptr: 0x");
@@ -272,25 +278,74 @@ pub(crate) unsafe fn slab_dealloc(ptr: *mut u8, _layout: Layout) {
             DeallocMemory!(slab, ptr, addr_slab, Slab512, slab512_partial, slab512_full);
         }
         1024 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab1024, slab1024_partial, slab1024_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab1024,
+                slab1024_partial,
+                slab1024_full
+            );
         }
         2040 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab2040, slab2040_partial, slab2040_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab2040,
+                slab2040_partial,
+                slab2040_full
+            );
         }
         4088 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab4088, slab4088_partial, slab4088_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab4088,
+                slab4088_partial,
+                slab4088_full
+            );
         }
         8184 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab8184, slab8184_partial, slab8184_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab8184,
+                slab8184_partial,
+                slab8184_full
+            );
         }
         16376 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab16376, slab16376_partial, slab16376_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab16376,
+                slab16376_partial,
+                slab16376_full
+            );
         }
         32752 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab32752, slab32752_partial, slab32752_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab32752,
+                slab32752_partial,
+                slab32752_full
+            );
         }
         65512 => {
-            DeallocMemory!(slab, ptr, addr_slab, Slab65512, slab65512_partial, slab65512_full);
+            DeallocMemory!(
+                slab,
+                ptr,
+                addr_slab,
+                Slab65512,
+                slab65512_partial,
+                slab65512_full
+            );
         }
         _ => {}
     }
@@ -298,8 +353,9 @@ pub(crate) unsafe fn slab_dealloc(ptr: *mut u8, _layout: Layout) {
 
 static mut SLAB_ALLOC: Option<MCSLock<SlabAllocator>> = None;
 
-pub(crate) unsafe fn init(start: usize, size: usize) {
-    let slab = MCSLock::new(SlabAllocator {pages: pager::PageManager::new(),
+pub(crate) fn init(start: usize, size: usize) {
+    let slab = MCSLock::new(SlabAllocator {
+        pages: pager::PageManager::new(),
         slab16_partial: null_mut(),
         slab32_partial: null_mut(),
         slab64_partial: null_mut(),
@@ -329,7 +385,7 @@ pub(crate) unsafe fn init(start: usize, size: usize) {
     });
 
     slab.lock().pages.set_range(start, size);
-    SLAB_ALLOC = Some(slab);
+    unsafe { SLAB_ALLOC = Some(slab) };
 }
 
 trait Slab {
