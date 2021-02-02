@@ -26,11 +26,6 @@
 // 01   01   10   00   10   00   00
 // x(0) x(1) L(2) u(3) L(4) u(5) u(6)
 
-use alloc::alloc::handle_alloc_error;
-use core::alloc::Layout;
-
-use synctools::mcs::MCSLock;
-
 #[cfg(feature = "buddy_32m")]
 const MAX_DEPTH: usize = 9; // depth of tree
 
@@ -95,39 +90,6 @@ const TAG_UNUSED: u64 = 0;
 const TAG_INNER: u64 = 1;
 const TAG_USED_LEAF: u64 = 2;
 
-static mut BUDDY_ALLOC: Option<MCSLock<BuddyAlloc>> = None;
-
-pub(crate) fn buddy_alloc(layout: Layout) -> *mut u8 {
-    unsafe {
-        match BUDDY_ALLOC
-            .as_ref()
-            .expect("buddy allocator is not yet initialized")
-            .lock()
-            .mem_alloc(layout.size())
-        {
-            Some(addr) => addr,
-            None => handle_alloc_error(layout),
-        }
-    }
-}
-
-pub(crate) fn buddy_dealloc(ptr: *mut u8, _layout: Layout) {
-    unsafe {
-        BUDDY_ALLOC
-            .as_ref()
-            .expect("buddy allocator is not yet initialized")
-            .lock()
-            .mem_free(ptr);
-    }
-}
-
-/// heap_end = heap_start + 2^MAX_DEPTH * min_size
-/// heap_size = heap_end - heap_size
-pub(crate) fn init(min_size: usize, heap_start: usize) {
-    let buddy = MCSLock::new(BuddyAlloc::new(min_size, heap_start));
-    unsafe { BUDDY_ALLOC = Some(buddy) };
-}
-
 pub(crate) struct BuddyAlloc {
     min_size: usize,
     start: usize,               // start address
@@ -141,7 +103,7 @@ enum Tag {
 }
 
 impl BuddyAlloc {
-    const fn new(min_size: usize, start: usize) -> BuddyAlloc {
+    pub(crate) fn new(min_size: usize, start: usize) -> BuddyAlloc {
         BuddyAlloc {
             min_size: min_size,
             start: start,
@@ -149,11 +111,11 @@ impl BuddyAlloc {
         }
     }
 
-    fn mem_alloc(&mut self, size: usize) -> Option<*mut u8> {
+    pub(crate) fn mem_alloc(&mut self, size: usize) -> Option<*mut u8> {
         self.find_mem(size, (1 << MAX_DEPTH) * self.min_size, 0, 0)
     }
 
-    fn mem_free(&mut self, addr: *mut u8) {
+    pub(crate) fn mem_free(&mut self, addr: *mut u8) {
         self.release_mem(addr as usize, (1 << MAX_DEPTH) * self.min_size, 0, 0)
     }
 

@@ -1,14 +1,4 @@
 /// 64 * 64 * 64 pages = 64 * 64 * 64 * 64KiB = 16GiB
-///
-/// ```
-/// static mut PAGEMNG: PageManager = PageManager{
-///     start: 0,
-///     end: 64 * 1024 * 1024 * 512,
-///     vacancy_books: 0,
-///     vacancy_pages: [0; 64],
-///     book: [Book{pages: [0; 64]}; 64],
-/// };
-/// ```
 pub struct PageManager {
     start: usize,
     end: usize,
