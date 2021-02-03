@@ -96,12 +96,39 @@ unsafe impl GlobalAlloc for Allocator {
 #[cfg(test)]
 mod tests {
     extern crate std;
+
+    use core::alloc::GlobalAlloc;
+
     use crate::Allocator;
-    //use std::alloc::{GlobalAlloc, Layout, System};
-    //use std::vec::Vec;
+
+    fn init() -> Allocator {
+        let mut alloc = Allocator::new();
+
+        let heap_size = 32 * 1024 * 1024;
+        let layout = std::alloc::Layout::from_size_align(heap_size, crate::ALIGNMENT).unwrap();
+        let ptr1 = unsafe { std::alloc::alloc(layout) };
+        let ptr2 = unsafe { std::alloc::alloc(layout) };
+
+        alloc.init_buddy(ptr1 as usize);
+        alloc.init_slab(ptr2 as usize, heap_size);
+
+        alloc
+    }
 
     #[test]
     fn test_alloc() {
-        Allocator::new();
+        let alloc = init();
+        let mut v = std::vec::Vec::new();
+        for i in 0..15 {
+            let layout = std::alloc::Layout::from_size_align(8 << i, 4).unwrap();
+            for _ in 0..8 {
+                let mem = unsafe { alloc.alloc(layout) };
+                v.push((mem, layout));
+            }
+        }
+
+        for (mem, layout) in v {
+            unsafe { alloc.dealloc(mem, layout) };
+        }
     }
 }
