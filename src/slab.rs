@@ -376,7 +376,7 @@ impl SlabAllocator {
     }
 
     pub(crate) fn init(&mut self, start: usize, size: usize) {
-        self.pages.set_range(start, size);
+        self.pages.set_range(start, start + size);
     }
 }
 
