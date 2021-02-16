@@ -71,7 +71,7 @@ impl PageManager {
             }
         }
 
-        return Some(addr);
+        Some(addr)
     }
 
     pub fn free(&mut self, addr: usize) {

@@ -105,8 +105,8 @@ enum Tag {
 impl BuddyAlloc {
     pub(crate) fn new(min_size: usize, start: usize) -> BuddyAlloc {
         BuddyAlloc {
-            min_size: min_size,
-            start: start,
+            min_size,
+            start,
             bitmap: [0; NUM_NODES32],
         }
     }
@@ -204,14 +204,10 @@ impl BuddyAlloc {
                 // combine buddy if both blocks are unused
                 let left = BuddyAlloc::get_idx(depth + 1, offset * 2);
                 let right = BuddyAlloc::get_idx(depth + 1, offset * 2 + 1);
-                match self.get_tag(left) {
-                    Tag::Unused => match self.get_tag(right) {
-                        Tag::Unused => {
-                            self.set_tag(idx, Tag::Unused);
-                        }
-                        _ => (),
-                    },
-                    _ => (),
+                if let Tag::Unused = self.get_tag(left) {
+                    if let Tag::Unused = self.get_tag(right) {
+                        self.set_tag(idx, Tag::Unused);
+                    }
                 }
             }
         }

@@ -12,7 +12,7 @@ mod slab;
 
 pub struct Allocator {
     buddy: Option<MCSLock<buddy::BuddyAlloc>>,
-    slab: Option<MCSLock<slab::SlabAllocator>>
+    slab: Option<MCSLock<slab::SlabAllocator>>,
 }
 
 const SIZE_64K: usize = 64 * 1024;
@@ -24,7 +24,7 @@ impl Allocator {
     pub const fn new() -> Allocator {
         Allocator {
             buddy: None,
-            slab: None
+            slab: None,
         }
     }
 
@@ -39,7 +39,6 @@ impl Allocator {
         s.init(heap_start, heap_size);
         self.slab = Some(MCSLock::new(s));
     }
-
 
     /// initialize buddy allocator
     /// heap_start must be aligned with 64KiB
@@ -58,22 +57,24 @@ impl Allocator {
 
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if slab::MAX_SLAB_SIZE >= layout.size() {
+        let result = if slab::MAX_SLAB_SIZE >= layout.size() {
             self.slab
                 .as_ref()
                 .expect("slab allocator is not yet initialized")
-                .lock().slab_alloc(layout)
+                .lock()
+                .slab_alloc(layout)
         } else {
-            match self
-                .buddy
+            self.buddy
                 .as_ref()
                 .expect("buddy allocator is not yet initialized")
                 .lock()
                 .mem_alloc(layout.size())
-            {
-                Some(addr) => addr,
-                None => handle_alloc_error(layout),
-            }
+        };
+
+        if let Some(ptr) = result {
+            ptr
+        } else {
+            handle_alloc_error(layout);
         }
     }
 
@@ -82,7 +83,8 @@ unsafe impl GlobalAlloc for Allocator {
             self.slab
                 .as_ref()
                 .expect("slab allocator is not yet initialized")
-                .lock().slab_dealloc(ptr, layout)
+                .lock()
+                .slab_dealloc(ptr, layout)
         } else {
             self.buddy
                 .as_ref()
@@ -121,7 +123,7 @@ mod tests {
         let mut v = std::vec::Vec::new();
         for i in 0..15 {
             let layout = std::alloc::Layout::from_size_align(8 << i, 4).unwrap();
-            for _ in 0..8 {
+            for _ in 0..128 {
                 let mem = unsafe { alloc.alloc(layout) };
                 v.push((mem, layout));
             }

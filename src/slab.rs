@@ -1,4 +1,3 @@
-use alloc::alloc::handle_alloc_error;
 use core::alloc::Layout;
 use core::ptr::null_mut;
 
@@ -39,7 +38,7 @@ pub(crate) struct SlabAllocator {
 }
 
 macro_rules! AllocMemory {
-    ($slab:expr, $t:ident, $slab_partial:ident, $slab_full:ident, $layout:ident) => {
+    ($slab:expr, $t:ident, $slab_partial:ident, $slab_full:ident) => {
         let r = {
             match $slab.$slab_partial.as_mut() {
                 Some(partial) => {
@@ -98,10 +97,11 @@ macro_rules! AllocMemory {
             }
         };
 
-        if r == null_mut() {
-            handle_alloc_error($layout);
+        if r.is_null() {
+            return None;
+        } else {
+            return Some(r);
         }
-        return r;
     };
 }
 
@@ -171,64 +171,60 @@ macro_rules! DeallocMemory {
 }
 
 impl SlabAllocator {
-    pub(crate) unsafe fn slab_alloc(&mut self, layout: Layout) -> *mut u8 {
+    pub(crate) unsafe fn slab_alloc(&mut self, layout: Layout) -> Option<*mut u8> {
         let size = layout.size();
         let n = (size as u64 + 8 - 1).leading_zeros();
 
         match n {
             61 => {
-                AllocMemory!(self, Slab16, slab16_partial, slab16_full, layout);
+                AllocMemory!(self, Slab16, slab16_partial, slab16_full);
             }
             60 => {
-                AllocMemory!(self, Slab16, slab16_partial, slab16_full, layout);
+                AllocMemory!(self, Slab16, slab16_partial, slab16_full);
             }
             59 => {
-                AllocMemory!(self, Slab32, slab32_partial, slab32_full, layout);
+                AllocMemory!(self, Slab32, slab32_partial, slab32_full);
             }
             58 => {
-                AllocMemory!(self, Slab64, slab64_partial, slab64_full, layout);
+                AllocMemory!(self, Slab64, slab64_partial, slab64_full);
             }
             57 => {
-                AllocMemory!(self, Slab128, slab128_partial, slab128_full, layout);
+                AllocMemory!(self, Slab128, slab128_partial, slab128_full);
             }
             56 => {
-                AllocMemory!(self, Slab256, slab256_partial, slab256_full, layout);
+                AllocMemory!(self, Slab256, slab256_partial, slab256_full);
             }
             55 => {
-                AllocMemory!(self, Slab512, slab512_partial, slab512_full, layout);
+                AllocMemory!(self, Slab512, slab512_partial, slab512_full);
             }
             54 => {
-                AllocMemory!(self, Slab1024, slab1024_partial, slab1024_full, layout);
+                AllocMemory!(self, Slab1024, slab1024_partial, slab1024_full);
             }
             _ => {
                 if size <= 4088 - 16 {
                     if size <= 2040 - 16 {
                         // Slab2040
-                        AllocMemory!(self, Slab2040, slab2040_partial, slab2040_full, layout);
+                        AllocMemory!(self, Slab2040, slab2040_partial, slab2040_full);
                     } else {
                         // Slab4088
-                        AllocMemory!(self, Slab4088, slab4088_partial, slab4088_full, layout);
+                        AllocMemory!(self, Slab4088, slab4088_partial, slab4088_full);
                     }
-                } else {
-                    if size <= 16376 - 16 {
-                        if size <= 8184 - 16 {
-                            // Slab8184
-                            AllocMemory!(self, Slab8184, slab8184_partial, slab8184_full, layout);
-                        } else {
-                            // Slab16376
-                            AllocMemory!(self, Slab16376, slab16376_partial, slab16376_full, layout);
-                        }
+                } else if size <= 16376 - 16 {
+                    if size <= 8184 - 16 {
+                        // Slab8184
+                        AllocMemory!(self, Slab8184, slab8184_partial, slab8184_full);
                     } else {
-                        if size <= 32752 - 16 {
-                            // Slab32752
-                            AllocMemory!(self, Slab32752, slab32752_partial, slab32752_full, layout);
-                        } else if size <= 65512 - 16 {
-                            // Slab65512
-                            AllocMemory!(self, Slab65512, slab65512_partial, slab65512_full, layout);
-                        } else {
-                            handle_alloc_error(layout);
-                        }
+                        // Slab16376
+                        AllocMemory!(self, Slab16376, slab16376_partial, slab16376_full);
                     }
+                } else if size <= 32752 - 16 {
+                    // Slab32752
+                    AllocMemory!(self, Slab32752, slab32752_partial, slab32752_full);
+                } else if size <= 65512 - 16 {
+                    // Slab65512
+                    AllocMemory!(self, Slab65512, slab65512_partial, slab65512_full);
+                } else {
+                    None
                 }
             }
         }
