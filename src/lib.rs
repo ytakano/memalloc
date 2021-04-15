@@ -2,7 +2,7 @@
 
 use alloc::alloc::handle_alloc_error;
 use core::alloc::{GlobalAlloc, Layout};
-use synctools::mcs::MCSLock;
+use synctools::mcs::{MCSLock, MCSNode};
 
 extern crate alloc;
 
@@ -57,18 +57,23 @@ impl Allocator {
 
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let result = if slab::MAX_SLAB_SIZE >= layout.size() {
-            self.slab
+        let result;
+        if slab::MAX_SLAB_SIZE >= layout.size() {
+            let mut node = MCSNode::new();
+            result = self
+                .slab
                 .as_ref()
                 .expect("slab allocator is not yet initialized")
-                .lock()
-                .slab_alloc(layout)
+                .lock(&mut node)
+                .slab_alloc(layout);
         } else {
-            self.buddy
+            let mut node = MCSNode::new();
+            result = self
+                .buddy
                 .as_ref()
                 .expect("buddy allocator is not yet initialized")
-                .lock()
-                .mem_alloc(layout.size())
+                .lock(&mut node)
+                .mem_alloc(layout.size());
         };
 
         if let Some(ptr) = result {
@@ -80,16 +85,18 @@ unsafe impl GlobalAlloc for Allocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if slab::MAX_SLAB_SIZE >= layout.size() {
+            let mut node = MCSNode::new();
             self.slab
                 .as_ref()
                 .expect("slab allocator is not yet initialized")
-                .lock()
-                .slab_dealloc(ptr, layout)
+                .lock(&mut node)
+                .slab_dealloc(ptr, layout);
         } else {
+            let mut node = MCSNode::new();
             self.buddy
                 .as_ref()
                 .expect("buddy allocator is not yet initialized")
-                .lock()
+                .lock(&mut node)
                 .mem_free(ptr);
         }
     }
