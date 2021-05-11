@@ -1,7 +1,10 @@
 #![no_std]
 
 use alloc::alloc::handle_alloc_error;
-use core::alloc::{GlobalAlloc, Layout};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    ptr::null,
+};
 use synctools::mcs::{MCSLock, MCSNode};
 
 extern crate alloc;
@@ -13,6 +16,7 @@ mod slab;
 pub struct Allocator {
     buddy: Option<MCSLock<buddy::BuddyAlloc>>,
     slab: Option<MCSLock<slab::SlabAllocator>>,
+    unmapf: *const (),
 }
 
 const SIZE_64K: usize = 64 * 1024;
@@ -25,6 +29,7 @@ impl Allocator {
         Allocator {
             buddy: None,
             slab: None,
+            unmapf: null(),
         }
     }
 
@@ -49,6 +54,10 @@ impl Allocator {
         assert_eq!(heap_start & MASK_64K, 0);
         let b = buddy::BuddyAlloc::new(SIZE_64K, heap_start);
         self.buddy = Some(MCSLock::new(b));
+    }
+
+    pub fn set_unmap_callback(&mut self, unmapf: fn(usize)) {
+        self.unmapf = unmapf as *const ();
     }
 }
 
@@ -85,12 +94,22 @@ unsafe impl GlobalAlloc for Allocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if slab::MAX_SLAB_SIZE >= layout.size() {
-            let mut node = MCSNode::new();
-            self.slab
-                .as_ref()
-                .expect("slab allocator is not yet initialized")
-                .lock(&mut node)
-                .slab_dealloc(ptr, layout);
+            let result;
+            {
+                let mut node = MCSNode::new();
+                result = self
+                    .slab
+                    .as_ref()
+                    .expect("slab allocator is not yet initialized")
+                    .lock(&mut node)
+                    .slab_dealloc(ptr, layout);
+            }
+            if let Some(addr) = result {
+                if !self.unmapf.is_null() {
+                    let unmapf = core::mem::transmute::<*const (), fn(usize)>(self.unmapf);
+                    unmapf(addr);
+                }
+            }
         } else {
             let mut node = MCSNode::new();
             self.buddy

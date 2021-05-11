@@ -6,7 +6,7 @@ use crate::pager;
 pub(crate) const MAX_SLAB_SIZE: usize = 65512;
 
 pub(crate) struct SlabAllocator {
-    pages: pager::PageManager,
+    pub(crate) pages: pager::PageManager,
 
     slab16_partial: *mut Slab16,
     slab32_partial: *mut Slab32,
@@ -130,6 +130,7 @@ macro_rules! DeallocMemory {
 
                     if slab.is_empty() {
                         $slab.pages.free($addr_slab as usize);
+                        Some($addr_slab as usize)
                     } else {
                         match $slab.$slab_partial.as_mut() {
                             Some(partial) => {
@@ -142,6 +143,7 @@ macro_rules! DeallocMemory {
                         }
                         slab.prev = null_mut();
                         $slab.$slab_partial = slab;
+                        None
                     }
                 } else {
                     if slab.is_empty() {
@@ -162,10 +164,13 @@ macro_rules! DeallocMemory {
                         }
 
                         $slab.pages.free($addr_slab as usize);
+                        Some($addr_slab as usize)
+                    } else {
+                        None
                     }
                 }
             }
-            None => {}
+            None => None,
         }
     };
 }
@@ -230,7 +235,7 @@ impl SlabAllocator {
         }
     }
 
-    pub(crate) unsafe fn slab_dealloc(&mut self, ptr: *mut u8, _layout: Layout) {
+    pub(crate) unsafe fn slab_dealloc(&mut self, ptr: *mut u8, _layout: Layout) -> Option<usize> {
         let addr_slab = *((ptr as usize - 8) as *const u64);
         let size = *((addr_slab + 65532) as *const u32);
 
@@ -248,22 +253,22 @@ impl SlabAllocator {
         */
         match size {
             16 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab16, slab16_partial, slab16_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab16, slab16_partial, slab16_full)
             }
             32 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab32, slab32_partial, slab32_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab32, slab32_partial, slab32_full)
             }
             64 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab64, slab64_partial, slab64_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab64, slab64_partial, slab64_full)
             }
             128 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab128, slab128_partial, slab128_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab128, slab128_partial, slab128_full)
             }
             256 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab256, slab256_partial, slab256_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab256, slab256_partial, slab256_full)
             }
             512 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab512, slab512_partial, slab512_full);
+                DeallocMemory!(self, ptr, addr_slab, Slab512, slab512_partial, slab512_full)
             }
             1024 => {
                 DeallocMemory!(
@@ -273,7 +278,7 @@ impl SlabAllocator {
                     Slab1024,
                     slab1024_partial,
                     slab1024_full
-                );
+                )
             }
             2040 => {
                 DeallocMemory!(
@@ -283,7 +288,7 @@ impl SlabAllocator {
                     Slab2040,
                     slab2040_partial,
                     slab2040_full
-                );
+                )
             }
             4088 => {
                 DeallocMemory!(
@@ -293,7 +298,7 @@ impl SlabAllocator {
                     Slab4088,
                     slab4088_partial,
                     slab4088_full
-                );
+                )
             }
             8184 => {
                 DeallocMemory!(
@@ -303,7 +308,7 @@ impl SlabAllocator {
                     Slab8184,
                     slab8184_partial,
                     slab8184_full
-                );
+                )
             }
             16376 => {
                 DeallocMemory!(
@@ -313,7 +318,7 @@ impl SlabAllocator {
                     Slab16376,
                     slab16376_partial,
                     slab16376_full
-                );
+                )
             }
             32752 => {
                 DeallocMemory!(
@@ -323,7 +328,7 @@ impl SlabAllocator {
                     Slab32752,
                     slab32752_partial,
                     slab32752_full
-                );
+                )
             }
             65512 => {
                 DeallocMemory!(
@@ -333,9 +338,9 @@ impl SlabAllocator {
                     Slab65512,
                     slab65512_partial,
                     slab65512_full
-                );
+                )
             }
-            _ => {}
+            _ => None,
         }
     }
 
