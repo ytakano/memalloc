@@ -56,7 +56,7 @@ impl Allocator {
         self.buddy = Some(MCSLock::new(b));
     }
 
-    pub fn set_unmap_callback(&mut self, unmapf: fn(usize)) {
+    pub fn set_unmap_callback(&mut self, unmapf: fn(usize, usize)) {
         self.unmapf = unmapf as *const ();
     }
 }
@@ -106,17 +106,26 @@ unsafe impl GlobalAlloc for Allocator {
             }
             if let Some(addr) = result {
                 if !self.unmapf.is_null() {
-                    let unmapf = core::mem::transmute::<*const (), fn(usize)>(self.unmapf);
-                    unmapf(addr);
+                    let unmapf = core::mem::transmute::<*const (), fn(usize, usize)>(self.unmapf);
+                    unmapf(addr, addr);
                 }
             }
         } else {
-            let mut node = MCSNode::new();
-            self.buddy
-                .as_ref()
-                .expect("buddy allocator is not yet initialized")
-                .lock(&mut node)
-                .mem_free(ptr);
+            {
+                let mut node = MCSNode::new();
+                self.buddy
+                    .as_ref()
+                    .expect("buddy allocator is not yet initialized")
+                    .lock(&mut node)
+                    .mem_free(ptr);
+            }
+
+            if !self.unmapf.is_null() {
+                let unmapf = core::mem::transmute::<*const (), fn(usize, usize)>(self.unmapf);
+                let start = ptr as usize;
+                let end = start >> 16 + if start & MASK_64K == 0 { 0 } else { 1 };
+                unmapf(start, end);
+            }
         }
     }
 }
