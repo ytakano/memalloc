@@ -23,7 +23,7 @@ const SIZE_64K: usize = 64 * 1024;
 const MASK_64K: usize = SIZE_64K - 1;
 
 pub const ALIGNMENT: usize = SIZE_64K;
-pub const MASK: usize = MASK_64K;
+pub const MASK: usize = !(MASK_64K);
 
 impl Allocator {
     pub const fn new() -> Allocator {
