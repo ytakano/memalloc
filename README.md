@@ -1,4 +1,4 @@
-# memalloc: Memory allocator using slab and buddy allocators
+# memac: Memory allocator using slab and buddy allocators
 
 ## Usage
 
@@ -7,11 +7,11 @@ First of all, allocate 64KiB aligned memory regions for slab and buddy allocator
 ```rust
 #![feature(start)]
 
-use memalloc;
+use memac;
 use libc::{posix_memalign, c_void};
 
 #[global_allocator]
-static mut ALLOC: memalloc::Allocator = memalloc::Allocator::new();
+static mut ALLOC: memac::Allocator = memac::Allocator::new();
 
 fn main() {
     println!("Hello, world!");
@@ -45,8 +45,8 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
 
 ```toml
 [dependencies]
-libc = "0.2.85"
-memalloc = { features=["buddy_32m"] }
+libc = "0.2"
+memac = { features=["buddy_32m"] }
 ```
 
 buddy_32m indicates that the buddy allocator's memory size is 32MiB.

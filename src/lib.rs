@@ -1,13 +1,13 @@
 //! A Custom memory allocator using slab and buddy allocators.
 //!
 //! ```
-//! use memalloc::Allocator;
+//! use memac::Allocator;
 //! use core::alloc::GlobalAlloc;
 //!
 //! let mut alloc = Allocator::new();
 //!
 //! let heap_size = 32 * 1024 * 1024;
-//! let layout = std::alloc::Layout::from_size_align(heap_size, memalloc::ALIGNMENT).unwrap();
+//! let layout = std::alloc::Layout::from_size_align(heap_size, memac::ALIGNMENT).unwrap();
 //! let ptr1 = unsafe { std::alloc::alloc(layout) };
 //! let ptr2 = unsafe { std::alloc::alloc(layout) };
 //!

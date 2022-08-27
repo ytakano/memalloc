@@ -1,8 +1,15 @@
 [package]
-name = "memalloc"
-version = "0.2.0"
+name = "memac"
+version = "0.3.0"
 authors = ["Yuuki Takano <ytakanoster@gmail.com>"]
 edition = "2021"
+description = "A custom memory allocator using slab and buddy allocators."
+repository = "https://github.com/ytakano/memalloc/"
+keywords = ["no_std", "memory allocator" ]
+categories = [ "no-std", "embedded" ]
+license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://github.com/ytakano/memalloc/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
