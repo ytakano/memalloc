@@ -1,9 +1,8 @@
-use core::alloc::Layout;
 use core::ptr::null_mut;
 
 use crate::pager;
 
-pub(crate) const MAX_SLAB_SIZE: usize = 65512;
+pub(crate) const MAX_SLAB_SIZE: usize = 65512 - 8;
 
 pub(crate) struct SlabAllocator {
     pub(crate) pages: pager::PageManager,
@@ -176,8 +175,7 @@ macro_rules! DeallocMemory {
 }
 
 impl SlabAllocator {
-    pub(crate) unsafe fn slab_alloc(&mut self, layout: Layout) -> Option<*mut u8> {
-        let size = layout.size();
+    pub(crate) unsafe fn slab_alloc(&mut self, size: usize) -> Option<*mut u8> {
         let n = (size as u64 + 8 - 1).leading_zeros();
 
         match n {
@@ -225,7 +223,7 @@ impl SlabAllocator {
                 } else if size <= 32752 - 16 {
                     // Slab32752
                     AllocMemory!(self, Slab32752, slab32752_partial, slab32752_full);
-                } else if size <= 65512 - 16 {
+                } else if size <= 65512 - 8 {
                     // Slab65512
                     AllocMemory!(self, Slab65512, slab65512_partial, slab65512_full);
                 } else {
@@ -235,7 +233,7 @@ impl SlabAllocator {
         }
     }
 
-    pub(crate) unsafe fn slab_dealloc(&mut self, ptr: *mut u8, _layout: Layout) -> Option<usize> {
+    pub(crate) unsafe fn slab_dealloc(&mut self, ptr: *mut u8) -> Option<usize> {
         let addr_slab = *((ptr as usize - 8) as *const u64);
         let size = *((addr_slab + 65532) as *const u32);
 

@@ -111,11 +111,11 @@ impl BuddyAlloc {
         }
     }
 
-    pub(crate) fn mem_alloc(&mut self, size: usize) -> Option<*mut u8> {
+    pub(crate) fn buddy_alloc(&mut self, size: usize) -> Option<*mut u8> {
         self.find_mem(size, (1 << MAX_DEPTH) * self.min_size, 0, 0)
     }
 
-    pub(crate) fn mem_free(&mut self, addr: *mut u8) {
+    pub(crate) fn buddy_free(&mut self, addr: *mut u8) {
         self.release_mem(addr as usize, (1 << MAX_DEPTH) * self.min_size, 0, 0)
     }
 

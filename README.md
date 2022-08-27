@@ -46,7 +46,7 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
 ```toml
 [dependencies]
 libc = "0.2.85"
-memalloc = { git = "https://github.com/ytakano/memalloc.git", branch = "main", features=["buddy_32m"] }
+memalloc = { features=["buddy_32m"] }
 ```
 
 buddy_32m indicates that the buddy allocator's memory size is 32MiB.
