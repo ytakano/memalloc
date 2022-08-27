@@ -1,6 +1,6 @@
 [package]
 name = "memac"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Yuuki Takano <ytakanoster@gmail.com>"]
 edition = "2021"
 description = "A custom memory allocator using slab and buddy allocators."
@@ -19,7 +19,7 @@ rand = "0.8"
 [dependencies]
 
 [dependencies.synctools]
-version = "0.3.0"
+version = "0.3"
 
 [features]
 default = ["buddy_32m"]

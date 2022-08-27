@@ -46,7 +46,7 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
 ```toml
 [dependencies]
 libc = "0.2"
-memac = { features=["buddy_32m"] }
+memac = { version="0.3", features=["buddy_32m"], default-features=false }
 ```
 
 buddy_32m indicates that the buddy allocator's memory size is 32MiB.

@@ -179,10 +179,7 @@ impl SlabAllocator {
         let n = (size as u64 + 8 - 1).leading_zeros();
 
         match n {
-            61 => {
-                AllocMemory!(self, Slab16, slab16_partial, slab16_full);
-            }
-            60 => {
+            61 | 60 => {
                 AllocMemory!(self, Slab16, slab16_partial, slab16_full);
             }
             59 => {
