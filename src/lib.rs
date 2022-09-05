@@ -21,10 +21,9 @@
 
 #![no_std]
 
-use alloc::alloc::handle_alloc_error;
 use core::{
     alloc::{GlobalAlloc, Layout},
-    ptr::null,
+    ptr::{null, null_mut},
 };
 use synctools::mcs::{MCSLock, MCSNode};
 
@@ -201,7 +200,7 @@ unsafe impl GlobalAlloc for Allocator {
             if let Some(ptr) = self.mem_alloc(size) {
                 ptr
             } else {
-                handle_alloc_error(layout)
+                null_mut()
             }
         } else {
             let align_1 = alignment - 1;
@@ -215,7 +214,7 @@ unsafe impl GlobalAlloc for Allocator {
 
                 result
             } else {
-                handle_alloc_error(layout)
+                null_mut()
             }
         }
     }
