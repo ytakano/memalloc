@@ -23,7 +23,7 @@
 
 use core::{
     alloc::{GlobalAlloc, Layout},
-    ptr::{null, null_mut},
+    ptr::null_mut,
 };
 use synctools::mcs::{MCSLock, MCSNode};
 
@@ -37,7 +37,7 @@ mod slab;
 pub struct Allocator {
     buddy: Option<MCSLock<buddy::BuddyAlloc>>,
     slab: Option<MCSLock<slab::SlabAllocator>>,
-    unmapf: *const (),
+    unmapf: fn(usize, usize),
 }
 
 const SIZE_64K: usize = 64 * 1024;
@@ -48,10 +48,12 @@ pub const MASK: usize = !(MASK_64K);
 
 impl Allocator {
     pub const fn new() -> Allocator {
+        fn dummy(_: usize, _: usize) {}
+
         Allocator {
             buddy: None,
             slab: None,
-            unmapf: null(),
+            unmapf: dummy,
         }
     }
 
@@ -80,7 +82,7 @@ impl Allocator {
 
     /// set a callback function to unmap a memory region.
     pub fn set_unmap_callback(&mut self, unmapf: fn(usize, usize)) {
-        self.unmapf = unmapf as *const ();
+        self.unmapf = unmapf;
     }
 
     /// Allocate a memory region.
@@ -165,10 +167,7 @@ impl Allocator {
                 }
             }
             if let Some(addr) = result {
-                if !self.unmapf.is_null() {
-                    let unmapf = core::mem::transmute::<*const (), fn(usize, usize)>(self.unmapf);
-                    unmapf(addr, addr);
-                }
+                (self.unmapf)(addr, addr);
             }
         } else {
             {
@@ -178,12 +177,9 @@ impl Allocator {
                 }
             }
 
-            if !self.unmapf.is_null() {
-                let unmapf = core::mem::transmute::<*const (), fn(usize, usize)>(self.unmapf);
-                let start = ptr as usize;
-                let end = start >> (16 + if start & MASK_64K == 0 { 0 } else { 1 });
-                unmapf(start, end);
-            }
+            let start = ptr as usize;
+            let end = start >> (16 + if start & MASK_64K == 0 { 0 } else { 1 });
+            (self.unmapf)(start, end);
         }
     }
 }
