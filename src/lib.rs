@@ -8,11 +8,9 @@
 //!
 //! let heap_size = 32 * 1024 * 1024;
 //! let layout = std::alloc::Layout::from_size_align(heap_size, memac::ALIGNMENT).unwrap();
-//! let ptr1 = unsafe { std::alloc::alloc(layout) };
-//! let ptr2 = unsafe { std::alloc::alloc(layout) };
+//! let ptr = unsafe { std::alloc::alloc(layout) };
 //!
-//! alloc.init_buddy(ptr1 as usize);           // Set a region for the buddy allocator.
-//! alloc.init_slab(ptr2 as usize, heap_size); // Set a region for the slab allocator.
+//! alloc.init(ptr as usize); // Initialize the allocator.
 //!
 //! let layout = std::alloc::Layout::from_size_align(128, 32).unwrap();
 //! let mem = unsafe { alloc.alloc(layout) }; // Allocation.
@@ -35,7 +33,6 @@ mod slab;
 
 /// A custom memory allocator using slab and buddy allocators.
 pub struct Allocator {
-    buddy: Option<MCSLock<buddy::BuddyAlloc>>,
     slab: Option<MCSLock<slab::SlabAllocator>>,
     unmapf: fn(usize, usize),
 }
@@ -51,36 +48,23 @@ impl Allocator {
         fn dummy(_: usize, _: usize) {}
 
         Allocator {
-            buddy: None,
             slab: None,
             unmapf: dummy,
         }
     }
 
-    /// Initialize slab allocator.
-    /// `heap_start` must be aligned with 64KiB, and
-    /// `heap_size` must be 64KiB.
-    pub fn init_slab(&mut self, heap_start: usize, heap_size: usize) {
+    /// Initialize allocator.
+    ///
+    /// - `heap_size = 2^`buddy::MAX_DEPTH` * `min_size`
+    /// - `heap_end` = `heap_start` + `heap_size`
+    pub fn init(&mut self, heap_start: usize) {
         assert_eq!(heap_start & MASK_64K, 0);
-        assert_eq!(heap_size & MASK_64K, 0);
 
-        let mut s = slab::SlabAllocator::new();
-        s.init(heap_start, heap_size);
+        let s = slab::SlabAllocator::new(heap_start);
         self.slab = Some(MCSLock::new(s));
     }
 
-    /// Initialize buddy allocator.
-    /// `heap_start` must be aligned with 64KiB.
-    ///
-    /// - `heap_end` = `heap_start` + 2^`buddy::MAX_DEPTH` * `min_size`
-    /// - `heap_size` = `heap_end` - `heap_size`
-    pub fn init_buddy(&mut self, heap_start: usize) {
-        assert_eq!(heap_start & MASK_64K, 0);
-        let b = buddy::BuddyAlloc::new(SIZE_64K, heap_start);
-        self.buddy = Some(MCSLock::new(b));
-    }
-
-    /// set a callback function to unmap a memory region.
+    /// Set a callback function to unmap a memory region.
     pub fn set_unmap_callback(&mut self, unmapf: fn(usize, usize)) {
         self.unmapf = unmapf;
     }
@@ -91,11 +75,7 @@ impl Allocator {
         let alignment = layout.align();
 
         if alignment <= 8 {
-            if let Some(ptr) = self.mem_alloc(size) {
-                Some(ptr)
-            } else {
-                None
-            }
+            self.mem_alloc(size)
         } else {
             let align_1 = alignment - 1;
             let size = size + align_1 + 8;
@@ -134,25 +114,23 @@ impl Allocator {
     }
 
     fn mem_alloc(&self, size: usize) -> Option<*mut u8> {
-        let result;
         if size <= slab::MAX_SLAB_SIZE {
             let mut node = MCSNode::new();
-            result = unsafe {
+            unsafe {
                 if let Some(slab) = &self.slab {
                     slab.lock(&mut node).slab_alloc(size)
                 } else {
                     None
                 }
-            };
+            }
         } else {
             let mut node = MCSNode::new();
-            result = if let Some(buddy) = &self.buddy {
-                buddy.lock(&mut node).buddy_alloc(size)
+            if let Some(slab) = &self.slab {
+                slab.lock(&mut node).buddy.buddy_alloc(size)
             } else {
                 None
             }
         }
-        result
     }
 
     unsafe fn mem_free(&self, ptr: *mut u8, size: usize) {
@@ -172,8 +150,8 @@ impl Allocator {
         } else {
             {
                 let mut node = MCSNode::new();
-                if let Some(buddy) = &self.buddy {
-                    buddy.lock(&mut node).buddy_free(ptr);
+                if let Some(slab) = &self.slab {
+                    slab.lock(&mut node).buddy.buddy_free(ptr);
                 }
             }
 
@@ -240,35 +218,32 @@ mod tests {
 
     use crate::Allocator;
 
-    fn init() -> (Allocator, *mut u8, *mut u8) {
+    fn init() -> (Allocator, *mut u8) {
         let mut alloc = Allocator::new();
 
         let heap_size = 32 * 1024 * 1024;
         let layout = std::alloc::Layout::from_size_align(heap_size, crate::ALIGNMENT).unwrap();
-        let ptr1 = unsafe { std::alloc::alloc(layout) };
-        let ptr2 = unsafe { std::alloc::alloc(layout) };
+        let ptr = unsafe { std::alloc::alloc(layout) };
 
-        alloc.init_buddy(ptr1 as usize);
-        alloc.init_slab(ptr2 as usize, heap_size);
+        alloc.init(ptr as usize);
 
-        (alloc, ptr1, ptr2)
+        (alloc, ptr)
     }
 
-    fn free(ptr1: *mut u8, ptr2: *mut u8) {
+    fn free(ptr: *mut u8) {
         let heap_size = 32 * 1024 * 1024;
         let layout = std::alloc::Layout::from_size_align(heap_size, crate::ALIGNMENT).unwrap();
-        unsafe { std::alloc::dealloc(ptr1, layout) };
-        unsafe { std::alloc::dealloc(ptr2, layout) };
+        unsafe { std::alloc::dealloc(ptr, layout) };
     }
 
     #[test]
     fn test_alloc() {
         for _ in 0..64 {
             for align in 0..=7 {
-                let (alloc, ptr1, ptr2) = init();
+                let (alloc, ptr) = init();
                 let mut v = std::vec::Vec::new();
 
-                for i in 0..15 {
+                for i in 0..16 {
                     let size = 4 << i;
                     for j in 0..16 {
                         let size = size + (rand::random::<usize>() % size);
@@ -289,7 +264,7 @@ mod tests {
                     unsafe { alloc.dealloc(mem, layout) };
                 }
 
-                free(ptr1, ptr2);
+                free(ptr);
             }
         }
     }

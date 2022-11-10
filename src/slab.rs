@@ -1,11 +1,10 @@
+use crate::{buddy::BuddyAlloc, SIZE_64K};
 use core::ptr::null_mut;
-
-use crate::pager;
 
 pub(crate) const MAX_SLAB_SIZE: usize = 65512 - 8;
 
 pub(crate) struct SlabAllocator {
-    pub(crate) pages: pager::PageManager,
+    pub(crate) buddy: BuddyAlloc,
 
     slab16_partial: *mut Slab16,
     slab32_partial: *mut Slab32,
@@ -65,7 +64,7 @@ macro_rules! AllocMemory {
                     ret
                 }
                 None => {
-                    match $slab.pages.alloc() {
+                    match $slab.buddy.buddy_alloc(SIZE_64K) {
                         Some(addr) => {
                             let ptr = addr as *mut $t;
                             match ptr.as_mut() {
@@ -128,7 +127,7 @@ macro_rules! DeallocMemory {
                     }
 
                     if slab.is_empty() {
-                        $slab.pages.free($addr_slab as usize);
+                        $slab.buddy.buddy_free($addr_slab as *mut u8);
                         Some($addr_slab as usize)
                     } else {
                         match $slab.$slab_partial.as_mut() {
@@ -162,7 +161,7 @@ macro_rules! DeallocMemory {
                             None => {}
                         }
 
-                        $slab.pages.free($addr_slab as usize);
+                        $slab.buddy.buddy_free($addr_slab as *mut u8);
                         Some($addr_slab as usize)
                     } else {
                         None
@@ -339,9 +338,9 @@ impl SlabAllocator {
         }
     }
 
-    pub(crate) fn new() -> SlabAllocator {
+    pub(crate) fn new(addr: usize) -> SlabAllocator {
         SlabAllocator {
-            pages: pager::PageManager::new(),
+            buddy: BuddyAlloc::new(SIZE_64K, addr),
             slab16_partial: null_mut(),
             slab32_partial: null_mut(),
             slab64_partial: null_mut(),
@@ -369,10 +368,6 @@ impl SlabAllocator {
             slab32752_full: null_mut(),
             slab65512_full: null_mut(),
         }
-    }
-
-    pub(crate) fn init(&mut self, start: usize, size: usize) {
-        self.pages.set_range(start, start + size);
     }
 }
 

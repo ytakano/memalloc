@@ -23,19 +23,12 @@ const HEAP_SIZE: usize = 32 * 1024 * 1024; // 32MiB
 fn start(_argc: isize, _argv: *const *const u8) -> isize {
     // initialize memory
     unsafe {
-        // allocate memory for the buddy allocator
+        // allocate memory
         let mut ptr: *mut c_void = std::ptr::null_mut();
         if posix_memalign(&mut ptr, memalloc::ALIGNMENT, HEAP_SIZE) != 0 {
             panic!("posix_memalign");
         }
-        ALLOC.init_buddy(ptr as usize);
-
-        // allocate memory for the slab allocator
-        let mut ptr: *mut c_void = std::ptr::null_mut();
-        if posix_memalign(&mut ptr, memalloc::ALIGNMENT, HEAP_SIZE) != 0 {
-            panic!("posix_memalign");
-        }
-        ALLOC.init_slab(ptr as usize, HEAP_SIZE);
+        ALLOC.init(ptr as usize);
     }
 
     main();
@@ -46,10 +39,10 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
 ```toml
 [dependencies]
 libc = "0.2"
-memac = { version="0.3", features=["buddy_32m"], default-features=false }
+memac = { version="0.4", features=["buddy_32m"], default-features=false }
 ```
 
 buddy_32m indicates that the buddy allocator's memory size is 32MiB.
 If you want to change the size, see Cargo.toml.
 
-Slab allocator's size can be determined by the init_slab function.
+The slab allocator uses the buddy allocator to allocate slabs.
