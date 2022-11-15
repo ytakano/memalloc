@@ -1,10 +1,10 @@
-use crate::{buddy::BuddyAlloc, SIZE_64K};
+use crate::{MemAlloc, SIZE_64K};
 use core::ptr::null_mut;
 
 pub(crate) const MAX_SLAB_SIZE: usize = 65512 - 8;
 
-pub(crate) struct SlabAllocator {
-    pub(crate) buddy: BuddyAlloc,
+pub(crate) struct SlabAllocator<PAGEALLOC: MemAlloc> {
+    pub(crate) page_alloc: PAGEALLOC,
 
     slab16_partial: *mut Slab16,
     slab32_partial: *mut Slab32,
@@ -64,7 +64,7 @@ macro_rules! AllocMemory {
                     ret
                 }
                 None => {
-                    match $slab.buddy.buddy_alloc(SIZE_64K) {
+                    match $slab.page_alloc.alloc(SIZE_64K) {
                         Some(addr) => {
                             let ptr = addr as *mut $t;
                             match ptr.as_mut() {
@@ -127,7 +127,7 @@ macro_rules! DeallocMemory {
                     }
 
                     if slab.is_empty() {
-                        $slab.buddy.buddy_free($addr_slab as *mut u8);
+                        $slab.page_alloc.free($addr_slab as *mut u8);
                         Some($addr_slab as usize)
                     } else {
                         match $slab.$slab_partial.as_mut() {
@@ -161,7 +161,7 @@ macro_rules! DeallocMemory {
                             None => {}
                         }
 
-                        $slab.buddy.buddy_free($addr_slab as *mut u8);
+                        $slab.page_alloc.free($addr_slab as *mut u8);
                         Some($addr_slab as usize)
                     } else {
                         None
@@ -173,7 +173,7 @@ macro_rules! DeallocMemory {
     };
 }
 
-impl SlabAllocator {
+impl<PAGEALLOC: MemAlloc> SlabAllocator<PAGEALLOC> {
     pub(crate) unsafe fn slab_alloc(&mut self, size: usize) -> Option<*mut u8> {
         let n = (size as u64 + 8 - 1).leading_zeros();
 
@@ -338,9 +338,9 @@ impl SlabAllocator {
         }
     }
 
-    pub(crate) fn new(addr: usize) -> SlabAllocator {
-        SlabAllocator {
-            buddy: BuddyAlloc::new(SIZE_64K, addr),
+    pub(crate) fn new(addr: usize, size: usize) -> Self {
+        Self {
+            page_alloc: PAGEALLOC::new(addr, size),
             slab16_partial: null_mut(),
             slab32_partial: null_mut(),
             slab64_partial: null_mut(),

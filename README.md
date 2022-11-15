@@ -11,7 +11,7 @@ use memac;
 use libc::{posix_memalign, c_void};
 
 #[global_allocator]
-static mut ALLOC: memac::Allocator = memac::Allocator::new();
+static mut ALLOC: memac::Allocator<memac::budyy::Buddy32M> = memac::Allocator::new();
 
 fn main() {
     println!("Hello, world!");
@@ -25,10 +25,10 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
     unsafe {
         // allocate memory
         let mut ptr: *mut c_void = std::ptr::null_mut();
-        if posix_memalign(&mut ptr, memalloc::ALIGNMENT, HEAP_SIZE) != 0 {
+        if posix_memalign(&mut ptr, memac::ALIGNMENT, HEAP_SIZE) != 0 {
             panic!("posix_memalign");
         }
-        ALLOC.init(ptr as usize);
+        ALLOC.init(ptr as usize, HEAP_SIZE);
     }
 
     main();
@@ -39,10 +39,17 @@ fn start(_argc: isize, _argv: *const *const u8) -> isize {
 ```toml
 [dependencies]
 libc = "0.2"
-memac = { version="0.4", features=["buddy_32m"], default-features=false }
+memac = "0.5"
 ```
 
-buddy_32m indicates that the buddy allocator's memory size is 32MiB.
-If you want to change the size, see Cargo.toml.
+`memac::Allocator<memac::budyy::Buddy32M>` means that
+the slab allocator uses the buddy allocator to allocate slabs.
+If a requested size is greater than (65512 - 8) bytes,
+the buddy allocator is used to allocate memory.
 
-The slab allocator uses the buddy allocator to allocate slabs.
+`memac::Allocator<memac::pager::PageManager>` means that
+the allocator uses the page manager to allocate slabs.
+If a requested size is greater than (65512 - 8) bytes,
+the page manager is used to allocate memory.
+If a requested size is greater that 64K bytes,
+the allocation will fail.

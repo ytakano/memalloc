@@ -1,3 +1,5 @@
+use crate::{MemAlloc, SIZE_64K};
+
 /// 64 * 64 * 64 pages = 64 * 64 * 64 * 64KiB = 16GiB
 pub struct PageManager {
     start: usize,
@@ -13,16 +15,6 @@ pub struct Book {
 }
 
 impl PageManager {
-    pub const fn new() -> PageManager {
-        PageManager {
-            start: 0,
-            end: 0,
-            vacancy_books: 0,
-            vacancy_pages: [0; 64],
-            book: [Book { pages: [0; 64] }; 64],
-        }
-    }
-
     // pub fn print(&self) {
     //     uart::puts("start = 0x");
     //     uart::hex(self.start as u64);
@@ -42,12 +34,7 @@ impl PageManager {
     //     uart::puts("\n");
     // }
 
-    pub fn set_range(&mut self, start: usize, end: usize) {
-        self.start = start;
-        self.end = end;
-    }
-
-    pub fn alloc(&mut self) -> Option<usize> {
+    pub fn page_alloc(&mut self) -> Option<*mut u8> {
         if self.vacancy_books == !0 {
             return None;
         }
@@ -71,10 +58,11 @@ impl PageManager {
             }
         }
 
-        Some(addr)
+        Some(addr as _)
     }
 
-    pub fn free(&mut self, addr: usize) {
+    pub fn page_free(&mut self, addr: *mut u8) {
+        let addr = addr as usize;
         if addr & 0xFFFF != 0 || addr >= self.end || addr < self.start {
             panic!("invalid address");
         }
@@ -86,5 +74,31 @@ impl PageManager {
         self.book[idx1].pages[idx2] &= !(1 << (63 - idx3));
         self.vacancy_pages[idx1] &= !(1 << (63 - idx2));
         self.vacancy_books &= !(1 << (63 - idx1));
+    }
+}
+
+impl MemAlloc for PageManager {
+    fn alloc(&mut self, size: usize) -> Option<*mut u8> {
+        if size > SIZE_64K {
+            None
+        } else {
+            self.page_alloc()
+        }
+    }
+
+    fn free(&mut self, addr: *mut u8) {
+        self.page_free(addr)
+    }
+
+    fn new(start_addr: usize, size: usize) -> Self {
+        assert_eq!(size % SIZE_64K, 0);
+
+        PageManager {
+            start: start_addr,
+            end: start_addr + size,
+            vacancy_books: 0,
+            vacancy_pages: [0; 64],
+            book: [Book { pages: [0; 64] }; 64],
+        }
     }
 }

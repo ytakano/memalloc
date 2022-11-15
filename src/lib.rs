@@ -1,16 +1,37 @@
 //! A Custom memory allocator using slab and buddy allocators.
 //!
+//! # Use buddy and slab allocators
+//!
 //! ```
-//! use memac::Allocator;
+//! use memac::{Allocator, buddy::Buddy32M};
 //! use core::alloc::GlobalAlloc;
 //!
-//! let mut alloc = Allocator::new();
+//! let mut alloc = Allocator::<Buddy32M>::new(); // Use 32M memory space.
 //!
 //! let heap_size = 32 * 1024 * 1024;
 //! let layout = std::alloc::Layout::from_size_align(heap_size, memac::ALIGNMENT).unwrap();
 //! let ptr = unsafe { std::alloc::alloc(layout) };
 //!
-//! alloc.init(ptr as usize); // Initialize the allocator.
+//! alloc.init(ptr as usize, heap_size); // Initialize the allocator.
+//!
+//! let layout = std::alloc::Layout::from_size_align(128, 32).unwrap();
+//! let mem = unsafe { alloc.alloc(layout) }; // Allocation.
+//! unsafe { alloc.dealloc(mem, layout) };    // Deallocation.
+//! ```
+//!
+//! # Use slab allocator only
+//!
+//! ```
+//! use memac::{Allocator, pager::PageManager};
+//! use core::alloc::GlobalAlloc;
+//!
+//! let mut alloc = Allocator::<PageManager>::new(); // Use a pager.
+//!
+//! let heap_size = 32 * 1024 * 1024;
+//! let layout = std::alloc::Layout::from_size_align(heap_size, memac::ALIGNMENT).unwrap();
+//! let ptr = unsafe { std::alloc::alloc(layout) };
+//!
+//! alloc.init(ptr as usize, heap_size); // Initialize the allocator.
 //!
 //! let layout = std::alloc::Layout::from_size_align(128, 32).unwrap();
 //! let mem = unsafe { alloc.alloc(layout) }; // Allocation.
@@ -27,13 +48,19 @@ use synctools::mcs::{MCSLock, MCSNode};
 
 extern crate alloc;
 
-mod buddy;
+pub mod buddy;
 pub mod pager;
 mod slab;
 
-/// A custom memory allocator using slab and buddy allocators.
-pub struct Allocator {
-    slab: Option<MCSLock<slab::SlabAllocator>>,
+pub trait MemAlloc {
+    fn alloc(&mut self, size: usize) -> Option<*mut u8>;
+    fn free(&mut self, addr: *mut u8);
+    fn new(start_addr: usize, size: usize) -> Self;
+}
+
+/// A custom memory allocator.
+pub struct Allocator<PAGEALLOC: MemAlloc> {
+    slab: Option<MCSLock<slab::SlabAllocator<PAGEALLOC>>>,
     unmapf: fn(usize, usize),
 }
 
@@ -43,8 +70,8 @@ const MASK_64K: usize = SIZE_64K - 1;
 pub const ALIGNMENT: usize = SIZE_64K;
 pub const MASK: usize = !(MASK_64K);
 
-impl Allocator {
-    pub const fn new() -> Allocator {
+impl<PAGEALLOC: MemAlloc> Allocator<PAGEALLOC> {
+    pub const fn new() -> Self {
         fn dummy(_: usize, _: usize) {}
 
         Allocator {
@@ -57,10 +84,10 @@ impl Allocator {
     ///
     /// - `heap_size = 2^`buddy::MAX_DEPTH` * `min_size`
     /// - `heap_end` = `heap_start` + `heap_size`
-    pub fn init(&mut self, heap_start: usize) {
+    pub fn init(&mut self, heap_start: usize, size: usize) {
         assert_eq!(heap_start & MASK_64K, 0);
 
-        let s = slab::SlabAllocator::new(heap_start);
+        let s = slab::SlabAllocator::new(heap_start, size);
         self.slab = Some(MCSLock::new(s));
     }
 
@@ -126,7 +153,7 @@ impl Allocator {
         } else {
             let mut node = MCSNode::new();
             if let Some(slab) = &self.slab {
-                slab.lock(&mut node).buddy.buddy_alloc(size)
+                slab.lock(&mut node).page_alloc.alloc(size)
             } else {
                 None
             }
@@ -151,7 +178,7 @@ impl Allocator {
             {
                 let mut node = MCSNode::new();
                 if let Some(slab) = &self.slab {
-                    slab.lock(&mut node).buddy.buddy_free(ptr);
+                    slab.lock(&mut node).page_alloc.free(ptr);
                 }
             }
 
@@ -165,7 +192,7 @@ impl Allocator {
 //#[global_allocator]
 //static GLOBAL: Allocator = Allocator {};
 
-unsafe impl GlobalAlloc for Allocator {
+unsafe impl<PAGEALLOC: MemAlloc> GlobalAlloc for Allocator<PAGEALLOC> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
         let alignment = layout.align();
@@ -216,16 +243,16 @@ mod tests {
     use core::alloc::GlobalAlloc;
     use std::println;
 
-    use crate::Allocator;
+    use crate::{buddy::Buddy32M, pager::PageManager, Allocator, MemAlloc, SIZE_64K};
 
-    fn init() -> (Allocator, *mut u8) {
+    fn init<T: MemAlloc>() -> (Allocator<T>, *mut u8) {
         let mut alloc = Allocator::new();
 
         let heap_size = 32 * 1024 * 1024;
         let layout = std::alloc::Layout::from_size_align(heap_size, crate::ALIGNMENT).unwrap();
         let ptr = unsafe { std::alloc::alloc(layout) };
 
-        alloc.init(ptr as usize);
+        alloc.init(ptr as usize, heap_size);
 
         (alloc, ptr)
     }
@@ -237,10 +264,42 @@ mod tests {
     }
 
     #[test]
+    fn test_page_alloc() {
+        for _ in 0..64 {
+            for align in 0..=7 {
+                let (alloc, ptr) = init::<PageManager>();
+                let mut v = std::vec::Vec::new();
+
+                for i in 0..16 {
+                    for j in 0..16 {
+                        let size = (rand::random::<usize>() % SIZE_64K) + 1;
+                        let layout = std::alloc::Layout::from_size_align(size, 4).unwrap();
+
+                        println!("allocate: {i}, {j}, layout = {:?}", layout);
+
+                        let mem = unsafe { alloc.alloc(layout) };
+                        v.push((mem, layout));
+
+                        // must be aligned
+                        assert_eq!(mem as usize % 1 << align, 0);
+                    }
+                }
+
+                for (mem, layout) in v {
+                    println!("deallocate: layout = {:?}", layout);
+                    unsafe { alloc.dealloc(mem, layout) };
+                }
+
+                free(ptr);
+            }
+        }
+    }
+
+    #[test]
     fn test_alloc() {
         for _ in 0..64 {
             for align in 0..=7 {
-                let (alloc, ptr) = init();
+                let (alloc, ptr) = init::<Buddy32M>();
                 let mut v = std::vec::Vec::new();
 
                 for i in 0..16 {
