@@ -1,6 +1,6 @@
 [package]
 name = "memac"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Yuuki Takano <ytakanoster@gmail.com>"]
 edition = "2021"
 description = "A custom memory allocator using slab and buddy allocators."

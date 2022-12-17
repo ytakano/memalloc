@@ -35,142 +35,125 @@ pub(crate) struct SlabAllocator<PAGEALLOC: MemAlloc> {
     slab65512_full: *mut Slab65512,
 }
 
-macro_rules! AllocMemory {
-    ($slab:expr, $t:ident, $slab_partial:ident, $slab_full:ident) => {
-        let r = {
-            match $slab.$slab_partial.as_mut() {
-                Some(partial) => {
-                    let ret = partial.alloc();
-                    if partial.is_full() {
-                        let ptr = $slab.$slab_partial;
-                        match partial.next.as_mut() {
-                            Some(next) => {
-                                next.prev = null_mut();
-                            }
-                            None => {}
-                        }
+unsafe fn alloc_memory<PAGEALLOC: MemAlloc, SLAB: Slab>(
+    page_alloc: &mut PAGEALLOC,
+    slab_partial: &mut *mut SLAB,
+    slab_full: &mut *mut SLAB,
+) -> Option<*mut u8> {
+    let slab_partial_top = slab_partial;
+    let slab_partial = *slab_partial_top;
 
-                        $slab.$slab_partial = partial.next;
-                        match $slab.$slab_full.as_mut() {
-                            Some(full) => {
-                                full.prev = ptr;
-                            }
-                            None => {}
-                        }
+    let slab_full_top = slab_full;
+    let slab_full = *slab_full_top;
 
-                        partial.next = $slab.$slab_full;
-                        $slab.$slab_full = ptr;
-                    }
-                    ret
+    match slab_partial.as_mut() {
+        Some(partial) => {
+            let ret = partial.alloc(); // Allocate a memory region.
+
+            if partial.is_full() {
+                if let Some(next) = partial.next().as_mut() {
+                    next.set_prev(null_mut());
                 }
-                None => {
-                    match $slab.page_alloc.alloc(SIZE_64K) {
-                        Some(addr) => {
-                            let ptr = addr as *mut $t;
-                            match ptr.as_mut() {
-                                Some(slab) => {
-                                    slab.init();
-                                    let ret = slab.alloc();
-                                    if slab.is_full() {
-                                        // for only Slab65512
-                                        match $slab.$slab_full.as_mut() {
-                                            Some(full) => {
-                                                full.prev = ptr;
-                                            }
-                                            None => {}
-                                        }
-                                        slab.next = $slab.$slab_full;
-                                        $slab.$slab_full = ptr;
-                                    } else {
-                                        $slab.$slab_partial = ptr;
-                                    }
-                                    ret
-                                }
-                                None => null_mut(),
-                            }
-                        }
-                        None => null_mut(),
-                    }
+
+                *slab_partial_top = partial.next();
+
+                if let Some(full) = slab_full.as_mut() {
+                    full.set_prev(slab_partial);
                 }
+
+                partial.set_next(slab_full);
             }
-        };
 
-        if r.is_null() {
-            return None;
-        } else {
-            return Some(r);
+            Some(ret)
         }
-    };
+        None => {
+            if let Some(addr) = page_alloc.alloc(SIZE_64K) {
+                let slab_ptr = addr as *mut SLAB;
+
+                if let Some(slab) = slab_ptr.as_mut() {
+                    slab.init();
+
+                    let ret = slab.alloc();
+
+                    if slab.is_full() {
+                        // for only Slab65512
+                        if let Some(full) = slab_full.as_mut() {
+                            full.set_prev(slab_ptr);
+                        }
+
+                        slab.set_next(slab_full);
+                        *slab_full_top = slab_ptr;
+                    } else {
+                        *slab_partial_top = slab_ptr;
+                    }
+
+                    Some(ret)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
 }
 
-macro_rules! DeallocMemory {
-    ($slab:expr, $ptr:expr, $addr_slab:expr, $t:ident, $slab_partial:ident, $slab_full:ident) => {
-        match ($addr_slab as *mut $t).as_mut() {
-            Some(slab) => {
-                let is_full = slab.is_full();
-                slab.free($ptr);
-                if is_full {
-                    match slab.prev.as_mut() {
-                        Some(prev) => {
-                            prev.next = slab.next;
-                        }
-                        None => {
-                            $slab.$slab_full = slab.next;
-                        }
-                    }
-
-                    match slab.next.as_mut() {
-                        Some(next) => {
-                            next.prev = slab.prev;
-                        }
-                        None => {}
-                    }
-
-                    if slab.is_empty() {
-                        $slab.page_alloc.free($addr_slab as *mut u8);
-                        Some($addr_slab as usize)
-                    } else {
-                        match $slab.$slab_partial.as_mut() {
-                            Some(partial) => {
-                                partial.prev = slab;
-                                slab.next = partial;
-                            }
-                            None => {
-                                slab.next = null_mut();
-                            }
-                        }
-                        slab.prev = null_mut();
-                        $slab.$slab_partial = slab;
-                        None
-                    }
-                } else {
-                    if slab.is_empty() {
-                        match slab.prev.as_mut() {
-                            Some(prev) => {
-                                prev.next = slab.next;
-                            }
-                            None => {
-                                $slab.$slab_partial = slab.next;
-                            }
-                        }
-
-                        match slab.next.as_mut() {
-                            Some(next) => {
-                                next.prev = slab.prev;
-                            }
-                            None => {}
-                        }
-
-                        $slab.page_alloc.free($addr_slab as *mut u8);
-                        Some($addr_slab as usize)
-                    } else {
-                        None
-                    }
-                }
+unsafe fn dealloc_memory<PAGEALLOC: MemAlloc, SLAB: Slab>(
+    ptr: *mut u8,
+    addr_slab: usize,
+    page_alloc: &mut PAGEALLOC,
+    slab_partial: &mut *mut SLAB,
+    slab_full: &mut *mut SLAB,
+) -> Option<usize> {
+    if let Some(slab) = (addr_slab as *mut SLAB).as_mut() {
+        let is_full = slab.is_full();
+        slab.free(ptr);
+        if is_full {
+            if let Some(prev) = slab.prev().as_mut() {
+                prev.set_next(slab.next());
+            } else {
+                *slab_full = slab.next();
             }
-            None => None,
+
+            if let Some(next) = slab.next().as_mut() {
+                next.set_prev(slab.prev());
+            }
+
+            if slab.is_empty() {
+                page_alloc.free(addr_slab as *mut u8);
+                Some(addr_slab) // Should unmap this page.
+            } else {
+                if let Some(partial) = slab_partial.as_mut() {
+                    partial.set_prev(slab);
+                    slab.set_next(partial);
+                } else {
+                    slab.set_next(null_mut());
+                }
+
+                slab.set_prev(null_mut());
+                *slab_partial = slab;
+
+                None
+            }
+        } else if slab.is_empty() {
+            if let Some(prev) = slab.prev().as_mut() {
+                prev.set_next(slab.next());
+            } else {
+                *slab_partial = slab.next();
+            }
+
+            if let Some(next) = slab.next().as_mut() {
+                next.set_prev(slab.prev());
+            }
+
+            page_alloc.free(addr_slab as *mut u8);
+            Some(addr_slab) // Should unmap this page.
+        } else {
+            None
         }
-    };
+    } else {
+        None
+    }
 }
 
 impl<PAGEALLOC: MemAlloc> SlabAllocator<PAGEALLOC> {
@@ -178,50 +161,88 @@ impl<PAGEALLOC: MemAlloc> SlabAllocator<PAGEALLOC> {
         let n = (size as u64 + 8 - 1).leading_zeros();
 
         match n {
-            61 | 60 => {
-                AllocMemory!(self, Slab16, slab16_partial, slab16_full);
-            }
-            59 => {
-                AllocMemory!(self, Slab32, slab32_partial, slab32_full);
-            }
-            58 => {
-                AllocMemory!(self, Slab64, slab64_partial, slab64_full);
-            }
-            57 => {
-                AllocMemory!(self, Slab128, slab128_partial, slab128_full);
-            }
-            56 => {
-                AllocMemory!(self, Slab256, slab256_partial, slab256_full);
-            }
-            55 => {
-                AllocMemory!(self, Slab512, slab512_partial, slab512_full);
-            }
-            54 => {
-                AllocMemory!(self, Slab1024, slab1024_partial, slab1024_full);
-            }
+            61 | 60 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab16_partial,
+                &mut self.slab16_full,
+            ),
+            59 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab32_partial,
+                &mut self.slab32_full,
+            ),
+            58 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab64_partial,
+                &mut self.slab64_full,
+            ),
+            57 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab128_partial,
+                &mut self.slab128_full,
+            ),
+            56 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab256_partial,
+                &mut self.slab256_full,
+            ),
+            55 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab512_partial,
+                &mut self.slab512_full,
+            ),
+            54 => alloc_memory(
+                &mut self.page_alloc,
+                &mut self.slab1024_partial,
+                &mut self.slab1024_full,
+            ),
             _ => {
                 if size <= 4088 - 16 {
                     if size <= 2040 - 16 {
                         // Slab2040
-                        AllocMemory!(self, Slab2040, slab2040_partial, slab2040_full);
+                        alloc_memory(
+                            &mut self.page_alloc,
+                            &mut self.slab2040_partial,
+                            &mut self.slab2040_full,
+                        )
                     } else {
                         // Slab4088
-                        AllocMemory!(self, Slab4088, slab4088_partial, slab4088_full);
+                        alloc_memory(
+                            &mut self.page_alloc,
+                            &mut self.slab4088_partial,
+                            &mut self.slab4088_full,
+                        )
                     }
                 } else if size <= 16376 - 16 {
                     if size <= 8184 - 16 {
                         // Slab8184
-                        AllocMemory!(self, Slab8184, slab8184_partial, slab8184_full);
+                        alloc_memory(
+                            &mut self.page_alloc,
+                            &mut self.slab8184_partial,
+                            &mut self.slab8184_full,
+                        )
                     } else {
                         // Slab16376
-                        AllocMemory!(self, Slab16376, slab16376_partial, slab16376_full);
+                        alloc_memory(
+                            &mut self.page_alloc,
+                            &mut self.slab16376_partial,
+                            &mut self.slab16376_full,
+                        )
                     }
                 } else if size <= 32752 - 16 {
                     // Slab32752
-                    AllocMemory!(self, Slab32752, slab32752_partial, slab32752_full);
+                    alloc_memory(
+                        &mut self.page_alloc,
+                        &mut self.slab32752_partial,
+                        &mut self.slab32752_full,
+                    )
                 } else if size <= 65512 - 8 {
                     // Slab65512
-                    AllocMemory!(self, Slab65512, slab65512_partial, slab65512_full);
+                    alloc_memory(
+                        &mut self.page_alloc,
+                        &mut self.slab65512_partial,
+                        &mut self.slab65512_full,
+                    )
                 } else {
                     None
                 }
@@ -229,6 +250,7 @@ impl<PAGEALLOC: MemAlloc> SlabAllocator<PAGEALLOC> {
         }
     }
 
+    /// Return a 64KiB page address if page should be unmapped.
     pub(crate) unsafe fn slab_dealloc(&mut self, ptr: *mut u8) -> Option<usize> {
         let addr_slab = *((ptr as usize - 8) as *const u64);
         let size = *((addr_slab + 65532) as *const u32);
@@ -246,94 +268,97 @@ impl<PAGEALLOC: MemAlloc> SlabAllocator<PAGEALLOC> {
                 driver::uart::puts("\n");
         */
         match size {
-            16 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab16, slab16_partial, slab16_full)
-            }
-            32 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab32, slab32_partial, slab32_full)
-            }
-            64 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab64, slab64_partial, slab64_full)
-            }
-            128 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab128, slab128_partial, slab128_full)
-            }
-            256 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab256, slab256_partial, slab256_full)
-            }
-            512 => {
-                DeallocMemory!(self, ptr, addr_slab, Slab512, slab512_partial, slab512_full)
-            }
-            1024 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab1024,
-                    slab1024_partial,
-                    slab1024_full
-                )
-            }
-            2040 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab2040,
-                    slab2040_partial,
-                    slab2040_full
-                )
-            }
-            4088 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab4088,
-                    slab4088_partial,
-                    slab4088_full
-                )
-            }
-            8184 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab8184,
-                    slab8184_partial,
-                    slab8184_full
-                )
-            }
-            16376 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab16376,
-                    slab16376_partial,
-                    slab16376_full
-                )
-            }
-            32752 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab32752,
-                    slab32752_partial,
-                    slab32752_full
-                )
-            }
-            65512 => {
-                DeallocMemory!(
-                    self,
-                    ptr,
-                    addr_slab,
-                    Slab65512,
-                    slab65512_partial,
-                    slab65512_full
-                )
-            }
+            16 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab16_partial,
+                &mut self.slab16_full,
+            ),
+            32 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab32_partial,
+                &mut self.slab32_full,
+            ),
+            64 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab64_partial,
+                &mut self.slab64_full,
+            ),
+            128 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab128_partial,
+                &mut self.slab128_full,
+            ),
+            256 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab256_partial,
+                &mut self.slab256_full,
+            ),
+            512 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab512_partial,
+                &mut self.slab512_full,
+            ),
+            1024 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab1024_partial,
+                &mut self.slab1024_full,
+            ),
+            2040 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab2040_partial,
+                &mut self.slab2040_full,
+            ),
+            4088 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab4088_partial,
+                &mut self.slab4088_full,
+            ),
+            8184 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab8184_partial,
+                &mut self.slab8184_full,
+            ),
+            16376 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab16376_partial,
+                &mut self.slab16376_full,
+            ),
+            32752 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab32752_partial,
+                &mut self.slab32752_full,
+            ),
+            65512 => dealloc_memory(
+                ptr,
+                addr_slab as usize,
+                &mut self.page_alloc,
+                &mut self.slab65512_partial,
+                &mut self.slab65512_full,
+            ),
             _ => None,
         }
     }
@@ -377,6 +402,10 @@ trait Slab {
     fn is_full(&self) -> bool;
     fn is_empty(&self) -> bool;
     fn init(&mut self);
+    fn next(&self) -> *mut Self;
+    fn prev(&self) -> *mut Self;
+    fn set_next(&mut self, next: *mut Self);
+    fn set_prev(&mut self, prev: *mut Self);
     // fn print(&self);
 }
 
@@ -394,6 +423,22 @@ macro_rules! SlabSmall {
         }
 
         impl Slab for $id {
+            fn next(&self) -> *mut Self {
+                self.next
+            }
+
+            fn set_next(&mut self, next: *mut Self) {
+                self.next = next;
+            }
+
+            fn prev(&self) -> *mut Self {
+                self.prev
+            }
+
+            fn set_prev(&mut self, prev: *mut Self) {
+                self.prev = prev;
+            }
+
             // +------------------+
             // | pointer to slab  |
             // |    (8 bytes)     |
@@ -552,6 +597,22 @@ macro_rules! SlabLarge {
         }
 
         impl Slab for $id {
+            fn next(&self) -> *mut Self {
+                self.next
+            }
+
+            fn set_next(&mut self, next: *mut Self) {
+                self.next = next;
+            }
+
+            fn prev(&self) -> *mut Self {
+                self.prev
+            }
+
+            fn set_prev(&mut self, prev: *mut Self) {
+                self.prev = prev;
+            }
+
             // +-------------------+
             // |       index       |
             // |     (8 bytes)     |
@@ -654,6 +715,22 @@ struct Slab65512 {
 }
 
 impl Slab for Slab65512 {
+    fn next(&self) -> *mut Self {
+        self.next
+    }
+
+    fn set_next(&mut self, next: *mut Self) {
+        self.next = next;
+    }
+
+    fn prev(&self) -> *mut Self {
+        self.prev
+    }
+
+    fn set_prev(&mut self, prev: *mut Self) {
+        self.prev = prev;
+    }
+
     // +------------------+
     // | pointer to slab  |
     // |    (8 bytes)     |

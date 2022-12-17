@@ -170,7 +170,9 @@ impl<const DEPTH: usize, const NUM_NODES32: usize> BuddyAlloc<DEPTH, NUM_NODES32
                     self.find_mem(req, next_bytes, depth + 1, offset * 2)
                 } else {
                     self.set_tag(idx, Tag::UsedLeaf);
-                    Some((self.start + bytes * offset) as *mut u8)
+                    let addr = self.start + bytes * offset;
+                    let ptr = addr as *mut u8;
+                    Some(ptr)
                 }
             }
             Tag::Inner => match self.find_mem(req, bytes >> 1, depth + 1, offset * 2) {
