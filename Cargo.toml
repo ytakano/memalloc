@@ -1,6 +1,6 @@
 [package]
 name = "memac"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Yuuki Takano <ytakanoster@gmail.com>"]
 edition = "2021"
 description = "A custom memory allocator using slab and buddy allocators."
@@ -17,6 +17,4 @@ homepage = "https://github.com/ytakano/memalloc/"
 rand = "0.8"
 
 [dependencies]
-
-[dependencies.synctools]
-version = "0.3"
+synctools = "0.4"

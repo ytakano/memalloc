@@ -44,7 +44,7 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
 };
-use synctools::mcs::{MCSLock, MCSNode};
+use synctools::mcs::MCSLock;
 
 extern crate alloc;
 
@@ -142,18 +142,16 @@ impl<PAGEALLOC: MemAlloc> Allocator<PAGEALLOC> {
 
     fn mem_alloc(&self, size: usize) -> Option<*mut u8> {
         if size <= slab::MAX_SLAB_SIZE {
-            let mut node = MCSNode::new();
             unsafe {
                 if let Some(slab) = &self.slab {
-                    slab.lock(&mut node).slab_alloc(size)
+                    slab.lock().slab_alloc(size)
                 } else {
                     None
                 }
             }
         } else {
-            let mut node = MCSNode::new();
             if let Some(slab) = &self.slab {
-                slab.lock(&mut node).page_alloc.alloc(size)
+                slab.lock().page_alloc.alloc(size)
             } else {
                 None
             }
@@ -164,9 +162,8 @@ impl<PAGEALLOC: MemAlloc> Allocator<PAGEALLOC> {
         if slab::MAX_SLAB_SIZE >= size {
             let result;
             {
-                let mut node = MCSNode::new();
                 result = if let Some(slab) = &self.slab {
-                    slab.lock(&mut node).slab_dealloc(ptr)
+                    slab.lock().slab_dealloc(ptr)
                 } else {
                     return;
                 }
@@ -176,9 +173,8 @@ impl<PAGEALLOC: MemAlloc> Allocator<PAGEALLOC> {
             }
         } else {
             {
-                let mut node = MCSNode::new();
                 if let Some(slab) = &self.slab {
-                    slab.lock(&mut node).page_alloc.free(ptr);
+                    slab.lock().page_alloc.free(ptr);
                 }
             }
 
